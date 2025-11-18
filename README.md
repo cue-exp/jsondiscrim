@@ -2,7 +2,7 @@
 
 A Go package for unmarshaling JSON with discriminated unions (tagged unions) using type-safe constant values.
 
-This package leverages the new experimental [json/v2](https://github.com/go-json-experiment/json) package to provide compile-time type safety when working with polymorphic JSON data.
+This package leverages the new experimental [encoding/json/v2](https://pkg.go.dev/encoding/json/v2) API to provide compile-time type safety when working with polymorphic JSON data. Currently to avoid the requirement to set GOEXPERIMENT, this depends on https://github.com/go-json-experiment/json rather than `encoding/json/v2` itself.
 
 ## When is this useful?
 
@@ -17,7 +17,10 @@ Use this package when you need to unmarshal JSON objects where a discriminator f
 ## Example
 
 ```go
-import "github.com/cue-exp/jsondiscrim"
+import (
+	"github.com/cue-exp/jsondiscrim"
+	"github.com/go-json-experiment/json"
+)
 
 // Define an interface for your message types
 type Message interface {
