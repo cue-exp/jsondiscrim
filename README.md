@@ -13,6 +13,7 @@ Use this package when you need to unmarshal JSON objects where a discriminator f
 - **Message queues** with polymorphic message types
 - **Configuration files** with variant sections
 - Any JSON that uses tagged unions or discriminated unions
+- Any JSON where a field is of a known constant value.
 
 ## Example
 
@@ -24,19 +25,30 @@ import (
 
 // Define an interface for your message types
 type Message interface {
-    Format() string
+	Format() string
+}
+
+// BaseMessage should be embedded by any [Message] implementation
+// to define its discriminator field. The S type parameter should
+// be of the form expected by [jsondiscrim.Const].
+type BaseMessage[S any] struct {
+	Type jsondiscrim.Const[string, S] `json:"type"`
 }
 
 // Define concrete types with a Const discriminator field
 type TextMessage struct {
-    Type jsondiscrim.Const[string, struct{ string `const:"text"` }] `json:"type"`
-    Text string                                                       `json:"text"`
+	BaseMessage[struct {
+		string `const:"text"`
+	}]
+	Text string `json:"text"`
 }
 
 type ImageMessage struct {
-    Type jsondiscrim.Const[string, struct{ string `const:"image"` }] `json:"type"`
-    URL  string                                                        `json:"url"`
-    Alt  string                                                        `json:"alt"`
+	BaseMessage[struct {
+		string `const:"image"`
+	}]
+	URL string `json:"url"`
+	Alt string `json:"alt"`
 }
 
 // Create an unmarshaler for the interface
@@ -54,8 +66,11 @@ conversationJSON := `{
 }`
 
 var conv Conversation
-err := json.Unmarshal([]byte(conversationJSON), &conv,
-    json.WithUnmarshalers(unmarshalers))
+err := json.Unmarshal(
+	[]byte(conversationJSON),
+	&conv,
+	json.WithUnmarshalers(unmarshalers),
+)
 ```
 
 ## The Const-Struct Idiom
@@ -78,17 +93,20 @@ This reads as: "a constant of type `string` with the value `"foo"`".
    - One field of type `T` (here, `string`)
    - A struct tag `const:"foo"` containing the constant's value
 
-3. **Type aliases for convenience**:
+3. **Base types for convenience**:
    ```go
-   type MessageTypeText = Const[string, struct{ string `const:"text"` }]
-   type MessageTypeImage = Const[string, struct{ string `const:"image"` }]
+   type BaseMessage[S any] struct {
+   	 Type Const[string, S]	`json:"type"`
+   }]
    ```
+   - Represents the general discriminator pattern for a particular interface type
+   - Designed to be embedded
 
 ### Why this pattern?
 
 This idiom provides:
 - **Compile-time type safety** - each constant value is a distinct type
-- **Low runtime overhead** - values are computed once via reflection
+- **Low runtime overhead** - discriminator values are zero size and computed once via reflection
 - **Automatic marshaling** - `Const` fields always marshal to their constant value
 - **Validation on unmarshal** - unmarshaling fails if the value doesn't match
 
