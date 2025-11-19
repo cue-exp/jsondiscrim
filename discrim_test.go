@@ -170,6 +170,13 @@ type Bird struct {
 
 func (Bird) isAnimal() {}
 
+type OtherAnimal struct {
+	Type string
+	OtherFields jsontext.Value	`json:",unknown"`
+}
+
+func (OtherAnimal) isAnimal() {}
+
 func TestStructsBasic(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -193,14 +200,14 @@ func TestStructsBasic(t *testing.T) {
 			want: &Bird{Sing: "tweet"},
 		},
 		{
-			name:    "unknown discriminator",
-			json:    `{"Type":"unknown","Data":"test"}`,
-			wantErr: ".*unknown discriminator value.*",
+			name:    "fallback",
+			json:    `{"Type":"dragon", "A": true}`,
+			want: &OtherAnimal{Type: "dragon",OtherFields: jsontext.Value(`{"A":true}`)},
 		},
 		{
 			name:    "missing discriminator",
 			json:    `{"Data":"test"}`,
-			wantErr: `.*discriminator field "Type" not found.*`,
+			want: &OtherAnimal{OtherFields: jsontext.Value(`{"Data":"test"}`)},
 		},
 	}
 
@@ -208,6 +215,7 @@ func TestStructsBasic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got Animal
 			err := json.Unmarshal([]byte(tt.json), &got, json.WithUnmarshalers(Structs[Animal](
+				(*OtherAnimal)(nil),
 				(*Dog)(nil),
 				(*Cat)(nil),
 				(*Bird)(nil),
@@ -262,6 +270,7 @@ func TestStructsWithDifferentFieldName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got Vehicle
 			err := json.Unmarshal([]byte(tt.json), &got, json.WithUnmarshalers(Structs[Vehicle](
+				nil,
 				(*Car)(nil),
 				(*Bike)(nil),
 			)))
@@ -313,6 +322,7 @@ func TestStructsWithJSONTags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got Item
 			err := json.Unmarshal([]byte(tt.json), &got, json.WithUnmarshalers(Structs[Item](
+				nil,
 				(*Book)(nil),
 				(*Movie)(nil),
 			)))
@@ -325,7 +335,7 @@ func TestStructsWithJSONTags(t *testing.T) {
 func TestStructsPanics(t *testing.T) {
 	t.Run("no choices", func(t *testing.T) {
 		qt.Assert(t, qt.PanicMatches(func() {
-			Structs[Animal]()
+			Structs[Animal](nil)
 		}, "no choices provided to Structs"))
 	})
 
@@ -338,7 +348,7 @@ func TestStructsPanics(t *testing.T) {
 
 	t.Run("no discriminator field", func(t *testing.T) {
 		qt.Assert(t, qt.PanicMatches(func() {
-			Structs[any](NoDiscrim1{}, NoDiscrim2{})
+			Structs[any](nil, NoDiscrim1{}, NoDiscrim2{})
 		}, "cannot determine discriminator.*"))
 	})
 
@@ -353,7 +363,7 @@ func TestStructsPanics(t *testing.T) {
 
 	t.Run("ambiguous discriminator", func(t *testing.T) {
 		qt.Assert(t, qt.PanicMatches(func() {
-			Structs[any](Ambig1{}, Ambig2{})
+			Structs[any](nil, Ambig1{}, Ambig2{})
 		}, "ambiguous discriminator fields.*"))
 	})
 
@@ -361,7 +371,7 @@ func TestStructsPanics(t *testing.T) {
 
 	t.Run("non-struct choice", func(t *testing.T) {
 		qt.Assert(t, qt.PanicMatches(func() {
-			Structs[any](NotStruct(0))
+			Structs[any](nil, NotStruct(0))
 		}, ".*not struct.*"))
 	})
 }
@@ -490,6 +500,7 @@ func TestRoundTrip(t *testing.T) {
 			// Unmarshal back
 			var got Animal
 			err = json.Unmarshal(data, &got, json.WithUnmarshalers(Structs[Animal](
+				nil,
 				(*Dog)(nil),
 				(*Cat)(nil),
 				(*Bird)(nil),
@@ -542,6 +553,7 @@ func TestStructsWithFieldOrder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got Animal
 			err := json.Unmarshal([]byte(tt.json), &got, json.WithUnmarshalers(Structs[Animal](
+				nil,
 				(*Dog)(nil),
 				(*Cat)(nil),
 			)))
@@ -574,6 +586,7 @@ func TestStructsErrorMessages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got Animal
 			err := json.Unmarshal([]byte(tt.json), &got, json.WithUnmarshalers(Structs[Animal](
+				nil,
 				(*Dog)(nil),
 				(*Cat)(nil),
 			)))
@@ -600,6 +613,7 @@ func TestStructsWithDecoder(t *testing.T) {
 
 	var got Animal
 	err := json.UnmarshalDecode(dec, &got, json.WithUnmarshalers(Structs[Animal](
+		nil,
 		(*Dog)(nil),
 		(*Cat)(nil),
 	)))
