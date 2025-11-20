@@ -53,8 +53,9 @@ type ImageMessage struct {
 
 // Create an unmarshaler for the interface
 unmarshalers := jsondiscrim.Structs[Message](
-    (*TextMessage)(nil),
-    (*ImageMessage)(nil),
+	nil,
+	(*TextMessage)(nil),
+	(*ImageMessage)(nil),
 )
 
 // Unmarshal JSON that will be dispatched to the correct type

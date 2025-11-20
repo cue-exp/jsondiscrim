@@ -17,13 +17,24 @@ import (
 // Structs returns an unmarshaler that unmarshals the given type T
 // (which should be an interface type) by consulting the struct fields
 // of each of the given choices to decide which concrete type to
-// unmarshal into. If none apply and the first argument is non-nil,
-// it will be used instead.
+// unmarshal into.
 //
-// All the other choices should be concrete values that contain a single
-// common field of type [Const] with a different type for each
-// choice.
-func Structs[T any](fallback T, choices ...T) *json.Unmarshalers {
+// All of choices should be different struct types (or pointers to
+// struct types) that all contain a single common field of type [Const]
+// with a different constant value for each choice. The value of that
+// field is then inspected at unmarshal time to determine which actual
+// type to unmarshal into.
+func Structs[T any](choices ...T) *json.Unmarshalers {
+	return StructsWithFallback(*new(T), choices...)
+}
+
+// StructsWithFallback is like [Structs] except that the concrete type
+// of the first argument is used as a fallback choice for unmarshaling
+// when none of the other choices apply.
+func StructsWithFallback[T any](fallback T, choices ...T) *json.Unmarshalers {
+	if t := reflect.TypeFor[T](); t.Kind() != reflect.Interface {
+		panic(fmt.Errorf("type %v is not an interface type", t))
+	}
 	hasFallback := !isNil(fallback)
 	if len(choices) == 0 && !hasFallback {
 		panic("no choices provided to Structs")
@@ -32,6 +43,22 @@ func Structs[T any](fallback T, choices ...T) *json.Unmarshalers {
 	var discrimByValue map[any]T
 	if len(choices) > 0 {
 		discrimField, discrimByValue = determineDiscriminator(choices)
+	}
+	if discrimField == "" {
+		// No discriminator but we do have a fallback.
+		// In this case, we don't have to buffer the value
+		// and can just do the simple direct unmarshal.
+		return json.UnmarshalFromFunc(func(d *jsontext.Decoder, src *T) error {
+			zero := fallback
+			reflect.ValueOf(&zero).Elem().Set(
+				reflect.New(reflect.TypeOf(zero).Elem()),
+			)
+			if err := json.UnmarshalDecode(d, zero); err != nil {
+				return err
+			}
+			*src = zero
+			return nil
+		})
 	}
 	return json.UnmarshalFromFunc(func(d *jsontext.Decoder, src *T) error {
 		raw, err := d.ReadValue()
@@ -66,13 +93,12 @@ func Structs[T any](fallback T, choices ...T) *json.Unmarshalers {
 	})
 }
 
-func isNil[T any](x T) bool {
-	return reflect.ValueOf(&x).Elem().IsNil()
-}
-
 func determineDiscriminator[T any](choices []T) (discrimField string, discrimByValue map[any] T) {
 	discrims := make(map[string]map[any]T)
-	for _, choice := range choices {
+	for i, choice := range choices {
+		if isNil(choice) {
+			panic(fmt.Errorf("argument %d is nil but should be concrete implementation of %v", i, reflect.TypeFor[T]()))
+		}
 		for fieldName, v := range constFields(reflect.TypeOf(choice)) {
 			byValue := discrims[fieldName]
 			if discrims[fieldName] == nil {
@@ -182,4 +208,8 @@ func fieldValue(data []byte, fieldName string) (any, error) {
 		}
 		return v, nil
 	}
+}
+
+func isNil[T any](x T) bool {
+	return reflect.ValueOf(&x).Elem().IsNil()
 }

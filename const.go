@@ -52,11 +52,13 @@ func (v *Const[T, S]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-var constByType sync.Map // typeof(S) -> *constInfo
+var constByType sync.Map // typeCmp[S]{}-> *constInfo
+
+type typeCmp[T any] struct{}
 
 // Value returns the constant value for v.
 func (v Const[T, S]) Value() T {
-	structType := reflect.TypeFor[S]()
+	structType := typeCmp[S]{}
 	// Ensure we only do the reflection work once.
 	info0, ok := constByType.Load(structType)
 	if !ok {
