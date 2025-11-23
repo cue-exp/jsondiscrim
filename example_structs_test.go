@@ -13,10 +13,20 @@ type Message interface {
 	Format() string
 }
 
+// BaseMessage encapsulates the discriminator field part of the
+// [Message] type. Its type parameter must hold the "const" type
+// parameter as expected by [jsondiscrim.Const], defining the
+// discriminator value.
+type BaseMessage[S any] struct {
+	Type jsondiscrim.Const[string, S] `json:"type"`
+}
+
 // TextMessage represents a text message.
 type TextMessage struct {
-	Type jsondiscrim.Const[string, struct{ string `const:"text"` }] `json:"type"`
-	Text string                                                       `json:"text"`
+	BaseMessage[struct {
+		string `const:"text"`
+	}]
+	Text string `json:"text"`
 }
 
 func (m *TextMessage) Format() string {
@@ -25,9 +35,11 @@ func (m *TextMessage) Format() string {
 
 // ImageMessage represents an image message.
 type ImageMessage struct {
-	Type jsondiscrim.Const[string, struct{ string `const:"image"` }] `json:"type"`
-	URL  string                                                        `json:"url"`
-	Alt  string                                                        `json:"alt"`
+	BaseMessage[struct {
+		string `const:"image"`
+	}]
+	URL string `json:"url"`
+	Alt string `json:"alt"`
 }
 
 func (m *ImageMessage) Format() string {
@@ -36,9 +48,11 @@ func (m *ImageMessage) Format() string {
 
 // LinkMessage represents a link message.
 type LinkMessage struct {
-	Type jsondiscrim.Const[string, struct{ string `const:"link"` }] `json:"type"`
-	URL  string                                                       `json:"url"`
-	Text string                                                       `json:"text"`
+	BaseMessage[struct {
+		string `const:"link"`
+	}]
+	URL  string `json:"url"`
+	Text string `json:"text"`
 }
 
 func (m *LinkMessage) Format() string {
