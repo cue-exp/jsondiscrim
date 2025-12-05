@@ -9,26 +9,10 @@ import (
 	"github.com/go-json-experiment/json"
 	"github.com/go-json-experiment/json/jsontext"
 	"github.com/go-quicktest/qt"
+	"github.com/google/go-cmp/cmp"
 )
 
-// Test types for Const functionality
-type (
-	ConstFoo = Const[string, struct {
-		string `const:"foo"`
-	}]
-	ConstBar = Const[string, struct {
-		string `const:"bar"`
-	}]
-	ConstBaz = Const[string, struct {
-		string `const:"baz"`
-	}]
-	Const42 = Const[int, struct {
-		int `const:"42"`
-	}]
-	ConstTrue = Const[bool, struct {
-		bool `const:"true"`
-	}]
-)
+type stringConst[S any] = Const[string, S]
 
 type Valuer[T any] interface {
 	Value() T
@@ -40,11 +24,21 @@ func TestConstValue(t *testing.T) {
 		constVal any
 		want     any
 	}{
-		{"string foo", ConstFoo{}, "foo"},
-		{"string bar", ConstBar{}, "bar"},
-		{"string baz", ConstBaz{}, "baz"},
-		{"int 42", Const42{}, 42},
-		{"bool true", ConstTrue{}, true},
+		{"string foo", stringConst[struct {
+			string `const:"foo"`
+		}]{}, "foo"},
+		{"string bar", stringConst[struct {
+			string `const:"bar"`
+		}]{}, "bar"},
+		{"string baz", stringConst[struct {
+			string `const:"baz"`
+		}]{}, "baz"},
+		{"int 42", Const[int, struct {
+			int `const:"42"`
+		}]{}, 42},
+		{"bool true", Const[bool, struct {
+			bool `const:"true"`
+		}]{}, true},
 	}
 
 	for _, tt := range tests {
@@ -71,10 +65,18 @@ func TestConstMarshalJSON(t *testing.T) {
 		constVal any
 		want     string
 	}{
-		{"string foo", ConstFoo{}, `"foo"`},
-		{"string bar", ConstBar{}, `"bar"`},
-		{"int 42", Const42{}, `42`},
-		{"bool true", ConstTrue{}, `true`},
+		{"string foo", stringConst[struct {
+			string `const:"foo"`
+		}]{}, `"foo"`},
+		{"string bar", stringConst[struct {
+			string `const:"bar"`
+		}]{}, `"bar"`},
+		{"int 42", Const[int, struct {
+			int `const:"42"`
+		}]{}, `42`},
+		{"bool true", Const[bool, struct {
+			bool `const:"true"`
+		}]{}, `true`},
 	}
 
 	for _, tt := range tests {
@@ -95,38 +97,50 @@ func TestConstUnmarshalJSON(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name:   "string foo success",
-			json:   `"foo"`,
-			target: new(ConstFoo),
+			name: "string foo success",
+			json: `"foo"`,
+			target: new(stringConst[struct {
+				string `const:"foo"`
+			}]),
 		},
 		{
-			name:    "string foo wrong value",
-			json:    `"bar"`,
-			target:  new(ConstFoo),
+			name: "string foo wrong value",
+			json: `"bar"`,
+			target: new(stringConst[struct {
+				string `const:"foo"`
+			}]),
 			wantErr: true,
 			errMsg:  `unexpected const value; got "bar" but want "foo"`,
 		},
 		{
-			name:   "int 42 success",
-			json:   `42`,
-			target: new(Const42),
+			name: "int 42 success",
+			json: `42`,
+			target: new(Const[int, struct {
+				int `const:"42"`
+			}]),
 		},
 		{
-			name:    "int 42 wrong value",
-			json:    `99`,
-			target:  new(Const42),
+			name: "int 42 wrong value",
+			json: `99`,
+			target: new(Const[int, struct {
+				int `const:"42"`
+			}]),
 			wantErr: true,
 			errMsg:  "unexpected const value; got 99 but want 42",
 		},
 		{
-			name:   "bool true success",
-			json:   `true`,
-			target: new(ConstTrue),
+			name: "bool true success",
+			json: `true`,
+			target: new(Const[bool, struct {
+				bool `const:"true"`
+			}]),
 		},
 		{
-			name:    "bool true wrong value",
-			json:    `false`,
-			target:  new(ConstTrue),
+			name: "bool true wrong value",
+			json: `false`,
+			target: new(Const[bool, struct {
+				bool `const:"true"`
+			}]),
 			wantErr: true,
 			errMsg:  "unexpected const value; got false but want true",
 		},
@@ -144,35 +158,45 @@ func TestConstUnmarshalJSON(t *testing.T) {
 	}
 }
 
+type BaseAnimal[S any] struct {
+	Type stringConst[S] `json:"type"`
+}
+
 // Test types for Structs discriminator functionality
 type Animal interface {
 	isAnimal()
 }
 
 type Dog struct {
-	Type ConstFoo
+	BaseAnimal[struct {
+		string `const:"dog"`
+	}]
 	Bark string
 }
 
 func (Dog) isAnimal() {}
 
 type Cat struct {
-	Type ConstBar
+	BaseAnimal[struct {
+		string `const:"cat"`
+	}]
 	Meow string
 }
 
 func (Cat) isAnimal() {}
 
 type Bird struct {
-	Type ConstBaz
+	BaseAnimal[struct {
+		string `const:"bird"`
+	}]
 	Sing string
 }
 
 func (Bird) isAnimal() {}
 
 type OtherAnimal struct {
-	Type string
-	OtherFields jsontext.Value	`json:",unknown"`
+	Type        string         `json:"type"`
+	OtherFields jsontext.Value `json:",unknown"`
 }
 
 func (OtherAnimal) isAnimal() {}
@@ -186,27 +210,27 @@ func TestStructsBasic(t *testing.T) {
 	}{
 		{
 			name: "dog",
-			json: `{"Type":"foo","Bark":"woof"}`,
+			json: `{"type":"dog","Bark":"woof"}`,
 			want: &Dog{Bark: "woof"},
 		},
 		{
 			name: "cat",
-			json: `{"Type":"bar","Meow":"meow"}`,
+			json: `{"type":"cat","Meow":"meow"}`,
 			want: &Cat{Meow: "meow"},
 		},
 		{
 			name: "bird",
-			json: `{"Type":"baz","Sing":"tweet"}`,
+			json: `{"type":"bird","Sing":"tweet"}`,
 			want: &Bird{Sing: "tweet"},
 		},
 		{
-			name:    "fallback",
-			json:    `{"Type":"dragon", "A": true}`,
-			want: &OtherAnimal{Type: "dragon",OtherFields: jsontext.Value(`{"A":true}`)},
+			name: "fallback",
+			json: `{"type":"dragon", "A": true}`,
+			want: &OtherAnimal{Type: "dragon", OtherFields: jsontext.Value(`{"A":true}`)},
 		},
 		{
-			name:    "missing discriminator",
-			json:    `{"Data":"test"}`,
+			name: "missing discriminator",
+			json: `{"Data":"test"}`,
 			want: &OtherAnimal{OtherFields: jsontext.Value(`{"Data":"test"}`)},
 		},
 	}
@@ -230,6 +254,21 @@ func TestStructsBasic(t *testing.T) {
 	}
 }
 
+func TestDiscriminator(t *testing.T) {
+	field, byValue, err := Discriminator[Animal](
+		(*Dog)(nil),
+		(*Cat)(nil),
+		Bird{},
+	)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(field, "type"))
+	qt.Assert(t, qt.CmpEquals(byValue, map[any]reflect.Type{
+		"dog":  reflect.TypeFor[*Dog](),
+		"cat":  reflect.TypeFor[*Cat](),
+		"bird": reflect.TypeFor[Bird](),
+	}, cmp.Comparer(cmpWithEqual[reflect.Type])))
+}
+
 func TestStructsWithFallbackOnly(t *testing.T) {
 	// This exercises the slightly different path in the logic
 	// when there's a fallback with no choices.
@@ -238,14 +277,13 @@ func TestStructsWithFallbackOnly(t *testing.T) {
 	}
 	var got S
 	err := json.Unmarshal(
-		[]byte(`{"A": {"Type": "a", "foo": true}}`),
+		[]byte(`{"A": {"type": "a", "foo": true}}`),
 		&got,
-		json.WithUnmarshalers(StructsWithFallback[Animal]((*OtherAnimal)(nil)),
-	))
+		json.WithUnmarshalers(StructsWithFallback[Animal]((*OtherAnimal)(nil))))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.DeepEquals(got, S{
 		A: &OtherAnimal{
-			Type: "a",
+			Type:        "a",
 			OtherFields: jsontext.Value(`{"foo":true}`),
 		},
 	}))
@@ -256,14 +294,18 @@ type Vehicle interface {
 }
 
 type Car struct {
-	Kind  ConstFoo
+	Kind stringConst[struct {
+		string `const:"car"`
+	}]
 	Brand string
 }
 
 func (Car) isVehicle() {}
 
 type Bike struct {
-	Kind  ConstBar
+	Kind stringConst[struct {
+		string `const:"bike"`
+	}]
 	Gears int
 }
 
@@ -277,12 +319,12 @@ func TestStructsWithDifferentFieldName(t *testing.T) {
 	}{
 		{
 			name: "car",
-			json: `{"Kind":"foo","Brand":"Toyota"}`,
+			json: `{"Kind":"car","Brand":"Toyota"}`,
 			want: &Car{Brand: "Toyota"},
 		},
 		{
 			name: "bike",
-			json: `{"Kind":"bar","Gears":21}`,
+			json: `{"Kind":"bike","Gears":21}`,
 			want: &Bike{Gears: 21},
 		},
 	}
@@ -305,17 +347,21 @@ type Item interface {
 }
 
 type Book struct {
-	Type   ConstFoo `json:"type"`
-	Title  string   `json:"title"`
-	Author string   `json:"author"`
+	Type stringConst[struct {
+		string `const:"book"`
+	}] `json:"type"`
+	Title  string `json:"title"`
+	Author string `json:"author"`
 }
 
 func (Book) isItem() {}
 
 type Movie struct {
-	Type     ConstBar `json:"type"`
-	Title    string   `json:"title"`
-	Director string   `json:"director"`
+	Type stringConst[struct {
+		string `const:"movie"`
+	}] `json:"type"`
+	Title    string `json:"title"`
+	Director string `json:"director"`
 }
 
 func (Movie) isItem() {}
@@ -328,12 +374,12 @@ func TestStructsWithJSONTags(t *testing.T) {
 	}{
 		{
 			name: "book",
-			json: `{"type":"foo","title":"1984","author":"George Orwell"}`,
+			json: `{"type":"book","title":"1984","author":"George Orwell"}`,
 			want: &Book{Title: "1984", Author: "George Orwell"},
 		},
 		{
 			name: "movie",
-			json: `{"type":"bar","title":"Inception","director":"Christopher Nolan"}`,
+			json: `{"type":"movie","title":"Inception","director":"Christopher Nolan"}`,
 			want: &Movie{Title: "Inception", Director: "Christopher Nolan"},
 		},
 	}
@@ -372,12 +418,20 @@ func TestStructsPanics(t *testing.T) {
 	})
 
 	type Ambig1 struct {
-		Field1 ConstFoo
-		Field2 ConstBar
+		Field1 stringConst[struct {
+			string `const:"foo"`
+		}]
+		Field2 stringConst[struct {
+			string `const:"bar"`
+		}]
 	}
 	type Ambig2 struct {
-		Field1 ConstBar
-		Field2 ConstFoo
+		Field1 stringConst[struct {
+			string `const:"bar"`
+		}]
+		Field2 stringConst[struct {
+			string `const:"foo"`
+		}]
 	}
 
 	t.Run("ambiguous discriminator", func(t *testing.T) {
@@ -456,8 +510,10 @@ func TestFieldValue(t *testing.T) {
 
 func TestConstFields(t *testing.T) {
 	type TestStruct struct {
-		Discrim ConstFoo
-		Data    string
+		Discrim stringConst[struct {
+			string `const:"foo"`
+		}]
+		Data string
 	}
 
 	fields := constFields(reflect.TypeOf(TestStruct{}))
@@ -470,8 +526,10 @@ func TestConstFields(t *testing.T) {
 
 	// Test with JSON tags
 	type TestStructWithTag struct {
-		Discrim ConstBar `json:"type"`
-		Data    string
+		Discrim stringConst[struct {
+			string `const:"bar"`
+		}] `json:"type"`
+		Data string
 	}
 
 	fields = constFields(reflect.TypeOf(TestStructWithTag{}))
@@ -488,8 +546,12 @@ func TestConstFieldsPanics(t *testing.T) {
 	})
 
 	type DuplicateJSON struct {
-		Field1 ConstFoo `json:"same"`
-		Field2 ConstBar `json:"same"`
+		Field1 stringConst[struct {
+			string `const:"foo"`
+		}] `json:"same"`
+		Field2 stringConst[struct {
+			string `const:"bar"`
+		}] `json:"same"`
 	}
 
 	t.Run("duplicate JSON names", func(t *testing.T) {
@@ -533,9 +595,11 @@ func TestRoundTrip(t *testing.T) {
 
 // Test with unexported fields (should be ignored)
 type WithUnexported struct {
-	Type       ConstFoo
-	exported   string
-	Unexported string
+	Type stringConst[struct {
+		string `const:"foo"`
+	}]
+	unexported string
+	Eexported  string
 }
 
 func TestConstFieldsIgnoresUnexported(t *testing.T) {
@@ -552,17 +616,17 @@ func TestStructsWithFieldOrder(t *testing.T) {
 	}{
 		{
 			name: "discriminator first",
-			json: `{"Type":"foo","Bark":"first"}`,
+			json: `{"type":"dog","Bark":"first"}`,
 			want: &Dog{Bark: "first"},
 		},
 		{
 			name: "discriminator last",
-			json: `{"Bark":"last","Type":"foo"}`,
+			json: `{"Bark":"last","type":"dog"}`,
 			want: &Dog{Bark: "last"},
 		},
 		{
 			name: "discriminator middle",
-			json: `{"Bark":"middle","Type":"bar","Meow":"purr"}`,
+			json: `{"Bark":"middle","type":"cat","Meow":"purr"}`,
 			want: &Cat{Meow: "purr"},
 		},
 	}
@@ -589,13 +653,13 @@ func TestStructsErrorMessages(t *testing.T) {
 	}{
 		{
 			name:       "unknown discriminator value",
-			json:       `{"Type":"invalid","Data":"test"}`,
+			json:       `{"type":"invalid","Data":"test"}`,
 			wantErrMsg: ".*unknown discriminator value.*",
 		},
 		{
 			name:       "missing discriminator",
 			json:       `{"Data":"test"}`,
-			wantErrMsg: `.*discriminator field "Type" not found.*`,
+			wantErrMsg: `.*discriminator field "type" not found.*`,
 		},
 	}
 
@@ -613,7 +677,9 @@ func TestStructsErrorMessages(t *testing.T) {
 
 // Test that Value() is consistent across multiple calls
 func TestConstValueConsistency(t *testing.T) {
-	cv := ConstFoo{}
+	cv := stringConst[struct {
+		string `const:"foo"`
+	}]{}
 	val1 := cv.Value()
 	val2 := cv.Value()
 	val3 := cv.Value()
@@ -624,16 +690,20 @@ func TestConstValueConsistency(t *testing.T) {
 
 // Test integration with jsontext.Decoder using UnmarshalDecode
 func TestStructsWithDecoder(t *testing.T) {
-	jsonData := `{"Type":"foo","Bark":"decoder test"}`
+	jsonData := `{"type":"dog","Bark":"decoder test"}`
 	dec := jsontext.NewDecoder(strings.NewReader(jsonData))
 
 	var got Animal
 	err := json.UnmarshalDecode(dec, &got, json.WithUnmarshalers(Structs[Animal](
-		(*Dog)(nil),
-		(*Cat)(nil),
+		Dog{},
+		Cat{},
 	)))
 	qt.Assert(t, qt.IsNil(err))
 
-	want := Animal(&Dog{Bark: "decoder test"})
+	want := Animal(Dog{Bark: "decoder test"})
 	qt.Assert(t, qt.DeepEquals(got, want))
+}
+
+func cmpWithEqual[T comparable](x, y T) bool {
+	return x == y
 }

@@ -35,28 +35,31 @@ func StructsWithFallback[T any](fallback T, choices ...T) *json.Unmarshalers {
 	if t := reflect.TypeFor[T](); t.Kind() != reflect.Interface {
 		panic(fmt.Errorf("type %v is not an interface type", t))
 	}
-	hasFallback := !isNil(fallback)
-	if len(choices) == 0 && !hasFallback {
+	var fallbackType reflect.Type
+	if !isNil(fallback) {
+		fallbackType = reflect.TypeOf(fallback)
+	} else if len(choices) == 0 {
 		panic("no choices provided to Structs")
 	}
 	var discrimField string
-	var discrimByValue map[any]T
+	var discrimByValue map[any]reflect.Type
 	if len(choices) > 0 {
-		discrimField, discrimByValue = determineDiscriminator(choices)
+		var err error
+		discrimField, discrimByValue, err = Discriminator(choices...)
+		if err != nil {
+			panic(err)
+		}
 	}
 	if discrimField == "" {
 		// No discriminator but we do have a fallback.
 		// In this case, we don't have to buffer the value
 		// and can just do the simple direct unmarshal.
 		return json.UnmarshalFromFunc(func(d *jsontext.Decoder, src *T) error {
-			zero := fallback
-			reflect.ValueOf(&zero).Elem().Set(
-				reflect.New(reflect.TypeOf(zero).Elem()),
-			)
-			if err := json.UnmarshalDecode(d, zero); err != nil {
+			dst := reflect.New(fallbackType)
+			if err := json.UnmarshalDecode(d, dst.Interface()); err != nil {
 				return err
 			}
-			*src = zero
+			reflect.ValueOf(src).Elem().Set(dst.Elem())
 			return nil
 		})
 	}
@@ -65,47 +68,50 @@ func StructsWithFallback[T any](fallback T, choices ...T) *json.Unmarshalers {
 		if err != nil {
 			return err
 		}
-		knownDiscrim := false
-		var zero T
-		if discrimField != "" {
-			discrimValue, err := fieldValue(raw, discrimField)
-			if err != nil && !hasFallback {
-				return err
+		discrimValue, err := fieldValue(raw, discrimField)
+		dstType := fallbackType
+		if err == nil {
+			if t := discrimByValue[discrimValue]; t != nil {
+				dstType = t
 			}
-			if err == nil {
-				zero, knownDiscrim = discrimByValue[discrimValue]
-				if !knownDiscrim &&  !hasFallback {
-					return fmt.Errorf("unknown discriminator value %q (valid values are %v)", discrimValue, maps.Keys(discrimByValue))
-				}
-			}
-		}
-		if !knownDiscrim {
-			zero = fallback
-		}
-		reflect.ValueOf(&zero).Elem().Set(
-			reflect.New(reflect.TypeOf(zero).Elem()),
-		)
-		if err := json.Unmarshal(raw, zero, d.Options()); err != nil {
+		} else if fallbackType == nil {
 			return err
 		}
-		*src = zero
+		if dstType == nil {
+			return fmt.Errorf("unknown discriminator value %q (valid values are %v)", discrimValue, slices.Collect(maps.Keys(discrimByValue)))
+		}
+		dst := reflect.New(dstType)
+		if err := json.Unmarshal(raw, dst.Interface(), d.Options()); err != nil {
+			return err
+		}
+		reflect.ValueOf(src).Elem().Set(dst.Elem())
 		return nil
 	})
 }
 
-func determineDiscriminator[T any](choices []T) (discrimField string, discrimByValue map[any] T) {
-	discrims := make(map[string]map[any]T)
+// Discriminator returns discrimination information between the given
+// choices, following the same rules for T and choices documented in
+// [Structs].
+//
+// It returns the JSON name of the discriminator field and a map mapping
+// possible values for the field to the respective concrete T type for
+// that field value.
+func Discriminator[T any](choices ...T) (discrimField string, discrimByValue map[any]reflect.Type, err error) {
+	if t := reflect.TypeFor[T](); t.Kind() != reflect.Interface {
+		return "", nil, fmt.Errorf("type %v is not an interface type", t)
+	}
+	discrims := make(map[string]map[any]reflect.Type)
 	for i, choice := range choices {
 		if isNil(choice) {
-			panic(fmt.Errorf("argument %d is nil but should be concrete implementation of %v", i, reflect.TypeFor[T]()))
+			return "", nil, fmt.Errorf("argument %d is nil but should be concrete implementation of %v", i, reflect.TypeFor[T]())
 		}
 		for fieldName, v := range constFields(reflect.TypeOf(choice)) {
 			byValue := discrims[fieldName]
 			if discrims[fieldName] == nil {
-				byValue = make(map[any]T)
+				byValue = make(map[any]reflect.Type)
 				discrims[fieldName] = byValue
 			}
-			byValue[v] = choice
+			byValue[v] = reflect.TypeOf(choice)
 		}
 	}
 	for fieldName, byValue := range discrims {
@@ -113,15 +119,15 @@ func determineDiscriminator[T any](choices []T) (discrimField string, discrimByV
 			continue
 		}
 		if discrimField != "" {
-			panic(fmt.Errorf("ambiguous discriminator fields %q and %q", discrimField, fieldName))
+			return "", nil, fmt.Errorf("ambiguous discriminator fields %q and %q", discrimField, fieldName)
 		}
 		discrimField = fieldName
 		discrimByValue = byValue
 	}
 	if discrimField == "" {
-		panic(fmt.Errorf("cannot determine discriminator from possibles %v", slices.Sorted(maps.Keys(discrims))))
+		return "", nil, fmt.Errorf("cannot determine discriminator from possibles %v", slices.Sorted(maps.Keys(discrims)))
 	}
-	return discrimField, discrimByValue
+	return discrimField, discrimByValue, nil
 }
 
 func constFields(t0 reflect.Type) map[string]any {
@@ -162,18 +168,6 @@ func jsonFieldName(f reflect.StructField) string {
 		}
 	}
 	return name
-}
-
-func lookupJSONField(t reflect.Type, jsonName string) reflect.Type {
-	for _, f := range reflect.VisibleFields(t) {
-		if f.PkgPath != "" {
-			continue
-		}
-		if jsonFieldName(f) == jsonName {
-			return f.Type
-		}
-	}
-	return nil
 }
 
 func fieldValue(data []byte, fieldName string) (any, error) {
